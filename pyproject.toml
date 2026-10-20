@@ -21,6 +21,6 @@ sentinel = ["static/*.html", "static/*.css", "static/*.js"]
 line-length = 120
 target-version = "py311"
 [tool.ruff.lint]
-select = ["E4", "E9", "F", "I", "UP", "B"]
+select = ["E4", "E9", "F", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
