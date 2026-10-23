@@ -1,0 +1,8 @@
+.docs-link { margin-left: auto; color: #718087; font-size: 12px; text-decoration: none; }
+.docs-link:hover { color: #829b58; }
+.status-message { min-height: 38px; display: flex; align-items: center; margin: -5px 0 15px; padding: 9px 12px; border: 1px solid #dfe4da; border-radius: 5px; background: #fafbf8; color: #657754; font-size: 12px; }
+.status-message[data-state="busy"] { border-color: #dfe5ee; background: #f6f8fb; color: #64768a; }
+.status-message[data-state="error"] { border-color: #ead1c9; background: #fff8f5; color: #9c5141; }
+button:disabled { opacity: .55; cursor: wait; }
+:focus-visible { outline: 3px solid #a9c867; outline-offset: 3px; }
+@media (max-width: 760px) { .docs-link { display: none; } }

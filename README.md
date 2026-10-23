@@ -28,6 +28,15 @@ sentinel-soc
 
 Open <http://127.0.0.1:8000>, select **Load attack simulation**, then review the correlated password-spray and privilege-escalation incident. Try the approval step and simulated containment. API reference is available at `/docs`.
 
+### 2–5 minute demo
+
+1. Select **Load attack simulation** to ingest eight synthetic security events.
+2. Review the incident score, password-spray finding, and correlated event timeline.
+3. Approve the recommended containment action and run the simulation.
+4. Open the incident report to inspect its evidence and analyst caveat.
+
+The workflow runs locally without provider credentials. Copy `.env.example` to `.env` only if you want to change `SENTINEL_DATA_DIR`.
+
 Docker: `docker compose up --build`.
 
 ## API
@@ -56,6 +65,7 @@ Containment is simulation-only: this repository does not block IPs, disable acco
 ```bash
 pip install -e '.[dev]'
 ruff check .
+ruff format --check .
 pytest
 ```
 

@@ -1,7 +1,166 @@
-const $=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(url,opt={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opt});const d=await r.json();if(!r.ok)throw Error(d.detail||'Request failed');return d}
-function render(x){const sev=x.severity;return `<article class="incident"><div class="row"><span class="pill ${esc(sev)}">${esc(sev)} · ${esc(x.status)}</span><span class="score">${x.risk_score} / 100</span></div><h3>${esc(x.actor)}</h3><p>${esc(x.summary)}</p><div class="findings">${(x.findings||[]).map(f=>`<p>↳ ${esc(f)}</p>`).join('')}</div><details><summary>${x.events.length} correlated events</summary>${x.events.map(e=>`<div class="event">${esc(new Date(e.timestamp).toLocaleTimeString())} · ${esc(e.event_type)} · ${esc(e.source_ip||'no IP')} · ${esc(e.action||e.resource)}</div>`).join('')}</details><div class="row"><span class="pill">${esc(x.recommended_action)} · ${esc(x.containment_status.replaceAll('_',' '))}</span></div><div class="actions">${x.containment_status==='not_approved'&&x.recommended_action!=='review'?`<button class="approve" data-action="contain/approve" data-id="${x.incident_id}">Approve containment</button>`:''}${x.containment_status==='approved'?`<button class="execute" data-action="contain/execute" data-id="${x.incident_id}">Simulate containment</button>`:''}<button data-action="report" data-id="${x.incident_id}">Report</button></div></article>`}
-async function refresh(){const [items,events]=await Promise.all([api('/v1/incidents'),api('/v1/events')]);$('open').textContent=items.filter(i=>i.status==='open').length;$('high').textContent=items.filter(i=>['high','critical'].includes(i.severity)).length;$('events').textContent=events.length;$('incidents').innerHTML=items.length?items.map(render).join(''):'<div class="empty">No incidents found. Load the synthetic incident to explore the analyst workflow.</div>'}
-$('demo').onclick=async()=>{try{await api('/v1/demo/load',{method:'POST'});await api('/v1/incidents/analyze',{method:'POST'});await refresh()}catch(e){alert(e.message)}};$('analyze').onclick=async()=>{try{await api('/v1/incidents/analyze',{method:'POST'});await refresh()}catch(e){alert(e.message)}};$('refresh').onclick=()=>refresh();
-$('ingest').onclick=async()=>{try{await api('/v1/events',{method:'POST',body:JSON.stringify({timestamp:new Date().toISOString(),event_type:$('type').value,actor:$('actor').value,source_ip:$('ip').value,action:'manual analyst submission',outcome:'unknown',severity:$('severity').value,details:$('details').value})});await api('/v1/incidents/analyze',{method:'POST'});await refresh()}catch(e){alert(e.message)}};
-$('incidents').addEventListener('click',async e=>{const b=e.target.closest('button[data-action]');if(!b)return;try{if(b.dataset.action==='report'){const r=await fetch(`/v1/incidents/${b.dataset.id}/report`);const blob=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`incident-${b.dataset.id}.md`;a.click();URL.revokeObjectURL(a.href);return}await api(`/v1/incidents/${b.dataset.id}/${b.dataset.action}`,{method:'POST'});await refresh()}catch(err){alert(err.message)}});refresh().catch(e=>{$('incidents').innerHTML=`<div class="empty">${esc(e.message)}</div>`});
+const $ = (id) => document.getElementById(id);
+const status = $("statusMessage");
+const escapeHtml = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+
+function setStatus(message, state = "ready") {
+  status.textContent = message;
+  status.dataset.state = state;
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(typeof data.detail === "string" ? data.detail : "The request could not be completed.");
+  }
+  return data;
+}
+
+async function runAction(button, pending, success, action) {
+  button.disabled = true;
+  setStatus(pending, "busy");
+  try {
+    await action();
+    setStatus(success);
+  } catch (error) {
+    setStatus(error.message || "The action failed. Try again.", "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderIncident(incident) {
+  const severity = escapeHtml(incident.severity);
+  const incidentId = escapeHtml(incident.incident_id);
+  const correlatedEvents = incident.events.map((event) => `
+    <div class="event">${escapeHtml(new Date(event.timestamp).toLocaleTimeString())} · ${escapeHtml(event.event_type)} · ${escapeHtml(event.source_ip || "no IP")} · ${escapeHtml(event.action || event.resource)}</div>
+  `).join("");
+  const findings = (incident.findings || []).map((finding) => `<p>↳ ${escapeHtml(finding)}</p>`).join("");
+  const approveButton = incident.containment_status === "not_approved" && incident.recommended_action !== "review"
+    ? `<button class="approve" type="button" data-action="contain/approve" data-id="${incidentId}">Approve containment</button>`
+    : "";
+  const executeButton = incident.containment_status === "approved"
+    ? `<button class="execute" type="button" data-action="contain/execute" data-id="${incidentId}">Simulate containment</button>`
+    : "";
+
+  return `<article class="incident">
+    <div class="row"><span class="pill ${severity}">${severity} · ${escapeHtml(incident.status)}</span><span class="score">${incident.risk_score} / 100</span></div>
+    <h3>${escapeHtml(incident.actor)}</h3>
+    <p>${escapeHtml(incident.summary)}</p>
+    <div class="findings">${findings}</div>
+    <details><summary>${incident.events.length} correlated events</summary>${correlatedEvents}</details>
+    <div class="row"><span class="pill">${escapeHtml(incident.recommended_action)} · ${escapeHtml(incident.containment_status.replaceAll("_", " "))}</span></div>
+    <div class="actions">
+      ${approveButton}${executeButton}
+      <button type="button" data-action="report" data-id="${incidentId}">Download report</button>
+    </div>
+  </article>`;
+}
+
+async function refresh() {
+  const [incidents, events] = await Promise.all([api("/v1/incidents"), api("/v1/events")]);
+  $("open").textContent = String(incidents.filter((incident) => incident.status === "open").length);
+  $("high").textContent = String(incidents.filter((incident) => ["high", "critical"].includes(incident.severity)).length);
+  $("events").textContent = String(events.length);
+  $("incidents").innerHTML = incidents.length
+    ? incidents.map(renderIncident).join("")
+    : '<div class="empty">No incidents found. Load the synthetic incident to explore the analyst workflow.</div>';
+}
+
+$("demo").addEventListener("click", (event) => {
+  runAction(
+    event.currentTarget,
+    "Loading synthetic password-spray and privilege-change signals…",
+    "Attack simulation loaded. Review the correlated incident and timeline.",
+    async () => {
+      await api("/v1/demo/load", { method: "POST" });
+      await api("/v1/incidents/analyze", { method: "POST" });
+      await refresh();
+    },
+  );
+});
+
+$("analyze").addEventListener("click", (event) => {
+  runAction(
+    event.currentTarget,
+    "Correlating recent security events…",
+    "Correlation complete. Review the updated detection queue.",
+    async () => {
+      await api("/v1/incidents/analyze", { method: "POST" });
+      await refresh();
+    },
+  );
+});
+
+$("refresh").addEventListener("click", (event) => {
+  runAction(event.currentTarget, "Refreshing incidents and events…", "Detection queue is up to date.", refresh);
+});
+
+$("ingest").addEventListener("click", (event) => {
+  runAction(
+    event.currentTarget,
+    "Saving and correlating the event…",
+    "Event ingested. Review the updated queue.",
+    async () => {
+      await api("/v1/events", {
+        method: "POST",
+        body: JSON.stringify({
+          timestamp: new Date().toISOString(),
+          event_type: $("type").value,
+          actor: $("actor").value.trim(),
+          source_ip: $("ip").value.trim() || null,
+          action: "manual analyst submission",
+          outcome: "unknown",
+          severity: $("severity").value,
+          details: $("details").value.trim(),
+        }),
+      });
+      await api("/v1/incidents/analyze", { method: "POST" });
+      await refresh();
+    },
+  );
+});
+
+$("incidents").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const incidentId = encodeURIComponent(button.dataset.id);
+
+  if (button.dataset.action === "report") {
+    await runAction(button, "Preparing the incident report…", "Report downloaded with its evidence and analyst note.", async () => {
+      const response = await fetch(`/v1/incidents/${incidentId}/report`);
+      if (!response.ok) throw new Error("The incident report could not be downloaded.");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `incident-${button.dataset.id}.md`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    });
+    return;
+  }
+
+  const action = button.dataset.action;
+  await runAction(
+    button,
+    action.endsWith("approve") ? "Recording analyst approval…" : "Running simulated containment…",
+    action.endsWith("approve") ? "Approval recorded. Review the action before simulation." : "Simulation complete. No account or network control was changed.",
+    async () => {
+      await api(`/v1/incidents/${incidentId}/${action}`, { method: "POST" });
+      await refresh();
+    },
+  );
+});
+
+refresh().catch((error) => setStatus(error.message || "Could not load incident data.", "error"));
